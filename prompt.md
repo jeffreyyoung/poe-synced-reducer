@@ -5,7 +5,7 @@ This library provides synchronized state management across multiple clients usin
 ## Installation
 
 ```javascript
-import { setup } from 'https://jeffreyyoung.com/state-lib/v1';
+import { setup } from 'https://cdn.jsdelivr.net/gh/jeffreyyoung/poe-synced-reducer@e09b8cae3afd15990eb764650f48bd79d2e654e9/dist/client.js';
 ```
 
 ## Basic Usage
