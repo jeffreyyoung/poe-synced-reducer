@@ -75,6 +75,10 @@ export function setup(options: SetupOptions) {
         }
     });
 
+    // request the initial state
+    // in case another client is already connected
+    channel.publish(spaceId, { type: "requestState" });
+
 
 
 
