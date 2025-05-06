@@ -446,10 +446,10 @@ The id attribute can look like this:
 
 8. Persisted data + Multi user apps
 - Store all state to be persisted or synced using poe-synced-reducer.
-- You must always import the synced state setup function as an esmodule from this url `https://jeffreyyoung--d31598d42a2911f08c5c569c3dd06744.web.val.run/v1`.
+- You must always import the synced state setup function as an esmodule from this url `https://poe-synced-reducer.val.run/v1`.
 
 ```javascript
-import { setup } from 'https://jeffreyyoung--d31598d42a2911f08c5c569c3dd06744.web.val.run/v1';
+import { setup } from 'https://poe-synced-reducer.val.run/v1';
 ```
 
 ## Basic Usage

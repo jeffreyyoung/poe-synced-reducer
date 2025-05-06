@@ -25,11 +25,15 @@ function setup(options) {
   const unconfirmedActions = [];
   const spaceId = `reducer` + simpleHash(reducer.toString());
   const listeners = /* @__PURE__ */ new Set();
-  function notifyListeners() {
+  function getStateWithUnconfirmedActions() {
     let newState = state;
     for (const action of unconfirmedActions) {
       newState = reducer(newState, action.action);
     }
+    return newState;
+  }
+  function notifyListeners() {
+    const newState = getStateWithUnconfirmedActions();
     listeners.forEach((listener) => listener(newState));
   }
   channel.subscribe(spaceId, (message) => {
@@ -74,7 +78,8 @@ function setup(options) {
       unconfirmedActions.push({ action, clientActionId, status: "waiting" });
       notifyListeners();
       flushActions();
-    }
+    },
+    getState: () => getStateWithUnconfirmedActions()
   };
 }
 function throttle(fn, delay) {

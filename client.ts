@@ -52,11 +52,15 @@ export function setup(options: SetupOptions) {
     const spaceId = `reducer`+simpleHash(reducer.toString());
     const listeners: Set<Listener> = new Set();
 
-    function notifyListeners() {
+    function getStateWithUnconfirmedActions() {
         let newState = state;
         for (const action of unconfirmedActions) {
             newState = reducer(newState, action.action);
         }
+        return newState;
+    }
+    function notifyListeners() {
+        const newState = getStateWithUnconfirmedActions();
         listeners.forEach(listener => listener(newState));
     }
     
@@ -108,7 +112,8 @@ export function setup(options: SetupOptions) {
             unconfirmedActions.push({ action, clientActionId, status: "waiting" });
             notifyListeners();
             flushActions();
-        }
+        },
+        getState: () => getStateWithUnconfirmedActions()
     }
 }
 
