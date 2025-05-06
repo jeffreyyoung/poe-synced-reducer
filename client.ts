@@ -1,15 +1,10 @@
-import Ably from "https://esm.sh/ably@2.7.0";
 import { simpleHash } from "./simpleHash.ts";
-
-
-let ably = new Ably.Realtime(
-    "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
-);
-
+import { NetworkInterface, createAblyNetworkInterface } from "./network.ts";
 
 type SetupOptions = {
     reducer: (state: any, action: any) => any;
     initialState: any;
+    networkInterface?: NetworkInterface;
 }
 
 type UnconfirmedAction = {
@@ -30,20 +25,22 @@ type ActionBatch = {
 
 type RequestState = {
     type: "requestState";
+    fromClientId: string;
 }
 
 type StateResponseAction = {
     type: "stateResponse";
     state: any;
+    forClientId: string;
 }
 
-type AblyDataType = ActionBatch | RequestState | StateResponseAction;
+type PublishedMessage = ActionBatch | RequestState | StateResponseAction;
 
 
 type Listener = (state: any) => void;
 export function setup(options: SetupOptions) {
     const { reducer, initialState } = options;
-    const channel = ably.channels.get("setup");
+    const networkInterface = options.networkInterface ?? createAblyNetworkInterface();
     // state is the true server state
     let state = initialState;
     const confirmedActions: ConfirmedAction[] = [];
@@ -61,17 +58,21 @@ export function setup(options: SetupOptions) {
     }
     function notifyListeners() {
         const newState = getStateWithUnconfirmedActions();
+        console.log("notifyListeners", newState, state, confirmedActions, unconfirmedActions);
         listeners.forEach(listener => listener(newState));
     }
-    
-    channel.subscribe(spaceId, (message) => {
-        const data = message.data as AblyDataType;
+    const clientId = crypto.randomUUID();
+
+    networkInterface.subscribe(spaceId, (data: PublishedMessage) => {
+        console.log("received", data);
         if ("type" in data && data.type === "requestState") {
-            channel.publish(spaceId, { type: "stateResponse", state });
+            networkInterface.publish(spaceId, { type: "stateResponse", state, forClientId: data.fromClientId } as StateResponseAction);
         }
         if ("type" in data && data.type === "stateResponse") {
-            state = data.state;
-            notifyListeners();
+            if (data.forClientId === clientId) {
+                state = data.state;
+                notifyListeners();
+            }
         }
         if ("type" in data && data.type === "actionBatch") {
             for (const action of data.actions) {
@@ -80,22 +81,22 @@ export function setup(options: SetupOptions) {
                     unconfirmedActions.splice(index, 1);
                 }
                 confirmedActions.push(action);
-                state = reducer(state, action);
+                state = reducer(state, action.action);
             }
             notifyListeners();
         }
     });
-
+    console.log("setup!!!!")
     // request the initial state
     // in case another client is already connected
-    channel.publish(spaceId, { type: "requestState" });
+    networkInterface.publish(spaceId, { type: "requestState", fromClientId: clientId } as RequestState);
 
     const flushActions = throttle(() => {
         const actionsToFlush = unconfirmedActions.filter(action => action.status === "waiting");
         actionsToFlush.forEach(action => {
             action.status = "pending";
         });
-        channel.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+        networkInterface.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
     }, 100);
 
 
@@ -120,11 +121,27 @@ export function setup(options: SetupOptions) {
 
 function throttle(fn: (...args: any[]) => void, delay: number) {
     let lastCall = 0;
+    let timeoutId: number | undefined;
+    let lastArgs: any[] | undefined;
+
     return (...args: any[]) => {
         const now = Date.now();
+        lastArgs = args;
+
         if (now - lastCall > delay) {
+            // If we're past the delay, execute immediately
             lastCall = now;
             fn(...args);
+        } else {
+            // Schedule the last call to happen after the delay
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            timeoutId = setTimeout(() => {
+                lastCall = Date.now();
+                fn(...lastArgs!);
+                timeoutId = undefined;
+            }, delay - (now - lastCall));
         }
     }
 }
