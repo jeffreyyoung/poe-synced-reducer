@@ -1,6 +1,3 @@
-// client.ts
-import Ably from "https://esm.sh/ably@2.7.0";
-
 // simpleHash.ts
 function simpleHash(str) {
   let hash = 0;
@@ -13,13 +10,33 @@ function simpleHash(str) {
   return Math.abs(hash);
 }
 
+// network.ts
+import Ably from "https://esm.sh/ably@2.7.0";
+function createAblyNetworkInterface() {
+  let ably = new Ably.Realtime(
+    "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
+  );
+  return {
+    subscribe: (spaceId, listener) => {
+      const channel = ably.channels.get(spaceId);
+      channel.subscribe((message) => {
+        listener(message.data);
+      });
+      return () => {
+        channel.unsubscribe();
+      };
+    },
+    publish: (spaceId, data) => {
+      const channel = ably.channels.get(spaceId);
+      channel.publish(data);
+    }
+  };
+}
+
 // client.ts
-var ably = new Ably.Realtime(
-  "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
-);
 function setup(options) {
   const { reducer, initialState } = options;
-  const channel = ably.channels.get("setup");
+  const networkInterface = options.networkInterface ?? createAblyNetworkInterface();
   let state = initialState;
   const confirmedActions = [];
   const unconfirmedActions = [];
@@ -34,16 +51,20 @@ function setup(options) {
   }
   function notifyListeners() {
     const newState = getStateWithUnconfirmedActions();
+    console.log("notifyListeners", newState, state, confirmedActions, unconfirmedActions);
     listeners.forEach((listener) => listener(newState));
   }
-  channel.subscribe(spaceId, (message) => {
-    const data = message.data;
+  const clientId = crypto.randomUUID();
+  networkInterface.subscribe(spaceId, (data) => {
+    console.log("received", data);
     if ("type" in data && data.type === "requestState") {
-      channel.publish(spaceId, { type: "stateResponse", state });
+      networkInterface.publish(spaceId, { type: "stateResponse", state, forClientId: data.fromClientId });
     }
     if ("type" in data && data.type === "stateResponse") {
-      state = data.state;
-      notifyListeners();
+      if (data.forClientId === clientId) {
+        state = data.state;
+        notifyListeners();
+      }
     }
     if ("type" in data && data.type === "actionBatch") {
       for (const action of data.actions) {
@@ -52,18 +73,19 @@ function setup(options) {
           unconfirmedActions.splice(index, 1);
         }
         confirmedActions.push(action);
-        state = reducer(state, action);
+        state = reducer(state, action.action);
       }
       notifyListeners();
     }
   });
-  channel.publish(spaceId, { type: "requestState" });
+  console.log("setup!!!!");
+  networkInterface.publish(spaceId, { type: "requestState", fromClientId: clientId });
   const flushActions = throttle(() => {
     const actionsToFlush = unconfirmedActions.filter((action) => action.status === "waiting");
     actionsToFlush.forEach((action) => {
       action.status = "pending";
     });
-    channel.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+    networkInterface.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
   }, 100);
   return {
     subscribe: (listener) => {
@@ -84,11 +106,23 @@ function setup(options) {
 }
 function throttle(fn, delay) {
   let lastCall = 0;
+  let timeoutId;
+  let lastArgs;
   return (...args) => {
     const now = Date.now();
+    lastArgs = args;
     if (now - lastCall > delay) {
       lastCall = now;
       fn(...args);
+    } else {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => {
+        lastCall = Date.now();
+        fn(...lastArgs);
+        timeoutId = void 0;
+      }, delay - (now - lastCall));
     }
   };
 }
