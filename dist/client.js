@@ -15,7 +15,7 @@ function simpleHash(str) {
 
 // client.ts
 var ably = new Ably.Realtime(
-  "frBw7w.OhTF1A:ZQNStvW9BVmKiVwQ3ZqOtTN8T5-QaIlmkQ5a675c2iM"
+  "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
 );
 function setup(options) {
   const { reducer, initialState } = options;
@@ -41,16 +41,26 @@ function setup(options) {
       state = data.state;
       notifyListeners();
     }
-    if ("type" in data && data.type === "confirmed") {
-      const index = unconfirmedActions.findIndex((action) => action.clientActionId === data?.clientActionId);
-      if (index !== -1) {
-        unconfirmedActions.splice(index, 1);
+    if ("type" in data && data.type === "actionBatch") {
+      for (const action of data.actions) {
+        const index = unconfirmedActions.findIndex((unconfirmedAction) => action.clientActionId === unconfirmedAction?.clientActionId);
+        if (index !== -1) {
+          unconfirmedActions.splice(index, 1);
+        }
+        confirmedActions.push(action);
+        state = reducer(state, action);
       }
-      confirmedActions.push(data);
-      state = reducer(state, data.action);
       notifyListeners();
     }
   });
+  channel.publish(spaceId, { type: "requestState" });
+  const flushActions = throttle(() => {
+    const actionsToFlush = unconfirmedActions.filter((action) => action.status === "waiting");
+    actionsToFlush.forEach((action) => {
+      action.status = "pending";
+    });
+    channel.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+  }, 100);
   return {
     subscribe: (listener) => {
       listeners.add(listener);
@@ -61,9 +71,19 @@ function setup(options) {
     },
     dispatch: (action) => {
       const clientActionId = crypto.randomUUID();
-      unconfirmedActions.push({ action, clientActionId });
+      unconfirmedActions.push({ action, clientActionId, status: "waiting" });
       notifyListeners();
-      channel.publish(spaceId, { type: "confirmed", action, clientActionId, serverActionId: crypto.randomUUID() });
+      flushActions();
+    }
+  };
+}
+function throttle(fn, delay) {
+  let lastCall = 0;
+  return (...args) => {
+    const now = Date.now();
+    if (now - lastCall > delay) {
+      lastCall = now;
+      fn(...args);
     }
   };
 }

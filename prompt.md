@@ -446,9 +446,10 @@ The id attribute can look like this:
 
 8. Persisted data + Multi user apps
 - Store all state to be persisted or synced using poe-synced-reducer.
+- You must always import the synced state setup function as an esmodule from this url `https://jeffreyyoung--d31598d42a2911f08c5c569c3dd06744.web.val.run/v1`.
 
 ```javascript
-import { setup } from 'https://cdn.jsdelivr.net/gh/jeffreyyoung/poe-synced-reducer@cdc0a9d9d431e139be7a11bdc293a8e4dce63f85/dist/client.js';
+import { setup } from 'https://jeffreyyoung--d31598d42a2911f08c5c569c3dd06744.web.val.run/v1';
 ```
 
 ## Basic Usage
@@ -573,4 +574,3 @@ The library automatically handles:
 
 1. The library uses Ably for real-time communication
 2. Each state space is isolated using a hash of the reducer function
-3. Consider implementing additional security measures for sensitive data

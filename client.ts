@@ -4,7 +4,7 @@ import { simpleHash } from "./simpleHash.ts";
 
 let ably = new Ably.Realtime(
     "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
-  );
+);
 
 
 type SetupOptions = {
