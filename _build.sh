@@ -1,0 +1,1 @@
+npx esbuild client.ts --bundle --format=esm --outfile=dist/client.js
