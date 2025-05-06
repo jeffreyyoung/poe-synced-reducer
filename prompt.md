@@ -506,6 +506,7 @@ Options:
 Returns an object with:
 - `subscribe`: Function to subscribe to state changes
 - `dispatch`: Function to dispatch actions
+- `getState`: Returns the current state
 
 ### `subscribe(listener: (state: any) => void)`
 
@@ -514,6 +515,10 @@ Subscribe to state changes. Returns an unsubscribe function.
 ### `dispatch(action: any)`
 
 Dispatch an action to update the state. The action will be synchronized across all clients.
+
+### `getState(): any`
+
+Returns the current state
 
 ## Best Practices
 
