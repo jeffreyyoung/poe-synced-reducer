@@ -65,7 +65,7 @@ export function setup(options: SetupOptions) {
 
     networkInterface.subscribe(spaceId, (data: PublishedMessage) => {
         console.log("received", data);
-        if ("type" in data && data.type === "requestState") {
+        if ("type" in data && data.type === "requestState" && data.fromClientId !== clientId) {
             networkInterface.publish(spaceId, { type: "stateResponse", state, forClientId: data.fromClientId } as StateResponseAction);
         }
         if ("type" in data && data.type === "stateResponse") {
