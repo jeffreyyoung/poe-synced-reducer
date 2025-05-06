@@ -3,7 +3,7 @@ import { simpleHash } from "./simpleHash.ts";
 
 
 let ably = new Ably.Realtime(
-    "frBw7w.OhTF1A:ZQNStvW9BVmKiVwQ3ZqOtTN8T5-QaIlmkQ5a675c2iM"
+    "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
   );
 
 
@@ -15,12 +15,17 @@ type SetupOptions = {
 type UnconfirmedAction = {
     action: any;
     clientActionId: string;
+    status: "waiting" | "pending";
 }
 type ConfirmedAction = {
-    type: "confirmed";
     action: any;
     clientActionId: string;
     serverActionId: string;
+}
+
+type ActionBatch = {
+    type: "actionBatch";
+    actions: ConfirmedAction[];
 }
 
 type RequestState = {
@@ -32,7 +37,7 @@ type StateResponseAction = {
     state: any;
 }
 
-type AblyDataType = ConfirmedAction | RequestState | StateResponseAction;
+type AblyDataType = ActionBatch | RequestState | StateResponseAction;
 
 
 type Listener = (state: any) => void;
@@ -64,13 +69,15 @@ export function setup(options: SetupOptions) {
             state = data.state;
             notifyListeners();
         }
-        if ("type" in data && data.type === "confirmed") {
-            const index = unconfirmedActions.findIndex(action => action.clientActionId === data?.clientActionId);
-            if (index !== -1) {
-                unconfirmedActions.splice(index, 1);
+        if ("type" in data && data.type === "actionBatch") {
+            for (const action of data.actions) {
+                const index = unconfirmedActions.findIndex(unconfirmedAction => action.clientActionId === unconfirmedAction?.clientActionId);
+                if (index !== -1) {
+                    unconfirmedActions.splice(index, 1);
+                }
+                confirmedActions.push(action);
+                state = reducer(state, action);
             }
-            confirmedActions.push(data as ConfirmedAction);
-            state = reducer(state, data.action);
             notifyListeners();
         }
     });
@@ -79,7 +86,13 @@ export function setup(options: SetupOptions) {
     // in case another client is already connected
     channel.publish(spaceId, { type: "requestState" });
 
-
+    const flushActions = throttle(() => {
+        const actionsToFlush = unconfirmedActions.filter(action => action.status === "waiting");
+        actionsToFlush.forEach(action => {
+            action.status = "pending";
+        });
+        channel.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+    }, 100);
 
 
     return {
@@ -92,9 +105,21 @@ export function setup(options: SetupOptions) {
         },
         dispatch: (action: any) => {
             const clientActionId = crypto.randomUUID();
-            unconfirmedActions.push({ action, clientActionId });
+            unconfirmedActions.push({ action, clientActionId, status: "waiting" });
             notifyListeners();
-            channel.publish(spaceId, { type: "confirmed", action, clientActionId, serverActionId: crypto.randomUUID() });
+            flushActions();
+        }
+    }
+}
+
+
+function throttle(fn: (...args: any[]) => void, delay: number) {
+    let lastCall = 0;
+    return (...args: any[]) => {
+        const now = Date.now();
+        if (now - lastCall > delay) {
+            lastCall = now;
+            fn(...args);
         }
     }
 }
