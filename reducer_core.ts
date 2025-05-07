@@ -39,14 +39,14 @@ export class ReducerCore<State = any, Action = any> {
         if (actions.length === 0) {
             return true;
         }
-        const lastAction = actions.at(-1);
-        if (!lastAction) {
+        const firstAction = actions.at(0);
+        if (!firstAction) {
             return true;
         }
         if (!this.getHighestConfirmedActionId()) {
             return true;
         }
-        if (this.getHighestConfirmedActionId() === lastAction.serverActionId - 1) {
+        if (this.getHighestConfirmedActionId() === firstAction.serverActionId - 1) {
             return true;
         }
         return false;
