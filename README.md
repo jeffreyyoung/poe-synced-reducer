@@ -1,1 +1,1 @@
-https://www.val.town/x/jeffreyyoung/synced_reducer/code/main.tsx
+https://www.val.toqwn/x/jeffreyyoung/synced_reducer/code/main.tsx

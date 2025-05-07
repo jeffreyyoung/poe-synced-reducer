@@ -36,6 +36,7 @@ export function setup(options: SetupOptions) {
     const readyPromise = networkInterface
         .getLatestSnapshot({ spaceId })
         .then((result) => {
+            console.log("received initial snapshot", result);
             core.processSnapshot(result);
         })
         .catch((e) => {

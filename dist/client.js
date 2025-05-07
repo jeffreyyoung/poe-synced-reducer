@@ -119,8 +119,8 @@ var ReducerCore = class {
   processPullResult(result) {
     this.processActions(result.actions);
   }
-  processSnapshot(result, initialState) {
-    this.state = result.state || initialState;
+  processSnapshot(result) {
+    this.state = result.state ?? this.initialState;
     const actionsToProcess = this.#mergeActions(result.actionsSinceLastSnapshot, this.confirmedActions);
     this.confirmedActions = [];
     this.processActions(actionsToProcess);
@@ -198,6 +198,7 @@ function setup(options) {
     });
   }, 500);
   const readyPromise = networkInterface.getLatestSnapshot({ spaceId }).then((result) => {
+    console.log("received initial snapshot", result);
     core.processSnapshot(result);
   }).catch((e) => {
     console.error("error while waiting for initial state", e);

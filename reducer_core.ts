@@ -17,8 +17,8 @@ export class ReducerCore<State = any, Action = any> {
         this.processActions(result.actions);
     }
 
-    processSnapshot(result: SnapshotResponse, initialState: State) {
-        this.state = result.state || initialState;
+    processSnapshot(result: SnapshotResponse) {
+        this.state = result.state ?? this.initialState;
         const actionsToProcess = this.#mergeActions(result.actionsSinceLastSnapshot, this.confirmedActions);
         this.confirmedActions = [];
         this.processActions(actionsToProcess);
