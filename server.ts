@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 
-import { CreateSnapshotRequest, NotYetPushedAction, PokeMessage, PullRequest, PullResponse, PushedAction, PushRequest, SnapshotRequest, SnapshotResponse } from "./network.ts";
+import { CreateSnapshotRequest, NotYetPushedAction, PokeMessage, PullRequest, PullResponse, PushedAction, PushRequest, PushResponse, SnapshotRequest, SnapshotResponse } from "./network.ts";
 
 const version = 3;
 
@@ -127,9 +127,18 @@ export function createServer(db: DatabaseSync, publish: (spaceId: string, payloa
             return new Response(JSON.stringify(response), { headers: corsHeaders });
         } else if (url.pathname === "/push" && req.method === "POST") {
             const body: PushRequest = await req.json();
+            if (body.actions.length === 0) {
+                const response: PushResponse = {
+                    actions: []
+                }
+                return new Response(JSON.stringify(response), { headers: corsHeaders });
+            }
             const actions = pushActions(db, body.spaceId, body.actions);
             publish(body.spaceId, { type: "actions", actions });
-            return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
+            const response: PushResponse = {    
+                actions
+            }
+            return new Response(JSON.stringify(response), { headers: corsHeaders });
         } else if (url.pathname === "/createSnapshot" && req.method === "POST") {
             const body: CreateSnapshotRequest = await req.json();
             console.log("createSnapshot", body);

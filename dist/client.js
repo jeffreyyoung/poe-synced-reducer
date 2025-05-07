@@ -243,6 +243,9 @@ function setup(options) {
     actionsToFlush.forEach((action) => {
       clientActionIdToStatus[action.clientActionId] = "pending";
     });
+    if (actionsToFlush.length === 0) {
+      return;
+    }
     await networkInterface.push({ spaceId, actions: actionsToFlush });
   }, 100);
   return {
