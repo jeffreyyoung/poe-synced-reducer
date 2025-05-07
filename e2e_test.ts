@@ -1,7 +1,6 @@
 import { setup } from "./client.ts";
 import { assertEquals } from "@std/assert";
 import { createServerNetworkInterface } from "./network.ts";
-import { simpleHash } from "./simpleHash.ts";
 
 const url = Deno.env.get("POE_SYNCED_REDUCER_URL") ?? "http://poe-synced-reducer.fly.dev";
 
@@ -9,7 +8,7 @@ Deno.test.only("one client", async () => {
     const initialState = {
         count: 0
     };
-    const spaceId = "test-space-" + simpleHash("test-space-1");
+    const spaceId = "test-space" + crypto.randomUUID();
     const reducer = (state: any, action: any) => {
         if (action.type === "increment") {
             return { count: state.count + 1 };
@@ -32,7 +31,7 @@ Deno.test("e2e test", async () => {
     const initialState = {
         count: 0
     };
-    const spaceId = "test-space-" + simpleHash("test-space-2");
+    const spaceId = "test-space" + crypto.randomUUID();
     const reducer = (state: any, action: any) => {
         if (action.type === "increment") {
             return { count: state.count + 1 };
