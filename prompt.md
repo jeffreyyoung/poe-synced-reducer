@@ -474,7 +474,8 @@ const db = setup({
   reducer,
   initialState: { count: 0 }
 });
-
+// we for ready
+await db.isReady()
 db.clientId // <-- id of current client
 
 // Subscribe to state changes
