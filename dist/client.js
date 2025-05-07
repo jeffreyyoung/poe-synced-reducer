@@ -12,35 +12,87 @@ function simpleHash(str) {
 
 // network.ts
 import Ably from "https://esm.sh/ably@2.7.0";
-function createAblyNetworkInterface() {
+function createServerNetworkInterface(baseUrl) {
   let ably = new Ably.Realtime(
     "Lz62RQ.sXcOOA:VbdVa18igh7V4fUJkwIixabQeF-I7hJAmEIrFJk7akY"
   );
+  const offFns = [];
   return {
-    subscribe: (spaceId, listener) => {
+    close: async () => {
+      try {
+        for (const offFn of offFns) {
+          offFn();
+        }
+        await ably.close();
+        await ably.connection.once("closed");
+      } catch (e) {
+        console.error("Error closing ably", e);
+      }
+    },
+    subscribeToPoke: (spaceId, listener) => {
+      console.log("subscribing to poke", spaceId);
       const channel = ably.channels.get(spaceId);
-      channel.subscribe((message) => {
-        listener(message.data);
+      channel.subscribe("poke", (message) => {
+        const data = message.data;
+        console.log("received", data);
+        if (data?.type === "actions") {
+          listener(data);
+        } else {
+          console.error("Unknown message type", data);
+        }
+      });
+      offFns.push(() => {
+        channel.unsubscribe();
       });
       return () => {
         channel.unsubscribe();
       };
     },
-    publish: (spaceId, data) => {
-      const channel = ably.channels.get(spaceId);
-      channel.publish(data);
+    push: async (args) => {
+      const response = await fetch(baseUrl + "/push", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(args)
+      });
+      if (!response.ok) {
+        console.error("Error pushing", response);
+        throw new Error("Error pushing");
+      }
+      const result = await response.json();
+      console.log("pushed", result);
+      return result;
+    },
+    pull: async (args) => {
+      console.log("pulling", args, baseUrl);
+      const response = await fetch(baseUrl + "/pull", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(args)
+      });
+      if (!response.ok) {
+        console.error("Error pulling", response);
+        throw new Error("Error pulling");
+      }
+      const result = await response.json();
+      console.log("pulled", result);
+      return result;
     }
   };
 }
 
 // client.ts
 function setup(options) {
-  const { reducer, initialState } = options;
-  const networkInterface = options.networkInterface ?? createAblyNetworkInterface();
+  const { reducer, initialState, spaceId: spaceIdOption } = options;
+  const networkInterface = options.networkInterface ?? createServerNetworkInterface("https://poe-synced-reducer.fly.dev");
   let state = initialState;
   const confirmedActions = [];
+  const clientId = crypto.randomUUID();
   const unconfirmedActions = [];
-  const spaceId = `reducer` + simpleHash(reducer.toString());
+  const spaceId = spaceIdOption ?? `reducer` + simpleHash(reducer.toString());
   const listeners = /* @__PURE__ */ new Set();
   function getStateWithUnconfirmedActions() {
     let newState = state;
@@ -51,43 +103,59 @@ function setup(options) {
   }
   function notifyListeners() {
     const newState = getStateWithUnconfirmedActions();
-    console.log("notifyListeners", newState, state, confirmedActions, unconfirmedActions);
+    console.table({
+      clientId,
+      spaceId,
+      state,
+      confirmedActions: confirmedActions.length,
+      unconfirmedActions: unconfirmedActions.length,
+      newState
+    });
     listeners.forEach((listener) => listener(newState));
   }
-  const clientId = crypto.randomUUID();
-  networkInterface.subscribe(spaceId, (data) => {
-    console.log("received", data);
-    if ("type" in data && data.type === "requestState" && data.fromClientId !== clientId) {
-      networkInterface.publish(spaceId, { type: "stateResponse", state, forClientId: data.fromClientId });
-    }
-    if ("type" in data && data.type === "stateResponse") {
-      if (data.forClientId === clientId) {
-        state = data.state;
-        notifyListeners();
-      }
-    }
-    if ("type" in data && data.type === "actionBatch") {
-      for (const action of data.actions) {
-        const index = unconfirmedActions.findIndex((unconfirmedAction) => action.clientActionId === unconfirmedAction?.clientActionId);
-        if (index !== -1) {
-          unconfirmedActions.splice(index, 1);
-        }
-        confirmedActions.push(action);
-        state = reducer(state, action.action);
-      }
-      notifyListeners();
+  const clientActionIdToStatus = {};
+  networkInterface.subscribeToPoke(spaceId, (data) => {
+    console.log("received poke", data);
+    if (data.type === "actions") {
+      processActions(data.actions);
     }
   });
-  console.log("setup!!!!");
-  networkInterface.publish(spaceId, { type: "requestState", fromClientId: clientId });
-  const flushActions = throttle(() => {
-    const actionsToFlush = unconfirmedActions.filter((action) => action.status === "waiting");
+  function processActions(actions) {
+    console.log("processing actions", actions);
+    for (const action of actions) {
+      console.log("processing action", action);
+      confirmedActions.push(action);
+      state = reducer(state, action.action);
+      console.log("state", state);
+      const index = unconfirmedActions.findIndex((unconfirmedAction) => action.clientActionId === unconfirmedAction.clientActionId);
+      if (index !== -1) {
+        unconfirmedActions.splice(index, 1);
+      }
+    }
+    notifyListeners();
+  }
+  const readyPromise = networkInterface.pull({ spaceId, lastActionId: -1 }).then((result) => {
+    console.log("pulled actions", result);
+    processActions(result.actions);
+  });
+  const pushActions = throttle(async () => {
+    const actionsToFlush = unconfirmedActions.filter((action) => clientActionIdToStatus[action.clientActionId] === "waiting");
+    console.log("pushing", actionsToFlush);
     actionsToFlush.forEach((action) => {
-      action.status = "pending";
+      clientActionIdToStatus[action.clientActionId] = "pending";
     });
-    networkInterface.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+    await networkInterface.push({ spaceId, actions: actionsToFlush });
   }, 100);
   return {
+    clientId,
+    networkInterface,
+    isReady: async () => {
+      await readyPromise.catch((e) => {
+        console.error("error while waiting for initial state", e);
+        return false;
+      });
+      return true;
+    },
     subscribe: (listener) => {
       listeners.add(listener);
       listener(state);
@@ -97,9 +165,10 @@ function setup(options) {
     },
     dispatch: (action) => {
       const clientActionId = crypto.randomUUID();
-      unconfirmedActions.push({ action, clientActionId, status: "waiting" });
+      unconfirmedActions.push({ action, clientActionId });
+      clientActionIdToStatus[clientActionId] = "waiting";
       notifyListeners();
-      flushActions();
+      pushActions();
     },
     getState: () => getStateWithUnconfirmedActions()
   };
