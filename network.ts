@@ -24,8 +24,14 @@ export type PullRequest = {
     lastActionId: number;
 }
 
+type Snapshot = {
+    state: any;
+    lastActionId: number;
+}
+
 export type PullResponse = {
     actions: PushedAction[];
+    snapshot?: Snapshot;
 }
 
 
@@ -42,10 +48,21 @@ export type PokeMessage = {
     actions: PushedAction[];
 }
 
+export type CreateSnapshotRequest = {
+    spaceId: string;
+    lastActionId: number;
+    state: any;
+}
+
+export type CreateSnapshotResponse = {
+    success: boolean;
+}
+
 export type NetworkInterface = {
     subscribeToPoke: (spaceId: string, listener: (state: PokeMessage) => void) => () => void;
     pull: (args: PullRequest) => Promise<PullResponse>;
     push: (args: PushRequest) => Promise<PushResponse>;
+    createSnapshot: (args: CreateSnapshotRequest) => Promise<CreateSnapshotResponse>;
     close: () => void;
 }
 
@@ -89,13 +106,10 @@ export function createServerNetworkInterface(baseUrl: string): NetworkInterface 
         },
         push: async (args: PushRequest) => {
             
-            const response = await fetch(baseUrl + "/push", {
+            const response = await fetch(new Request(baseUrl + "/push", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
                 body: JSON.stringify(args),
-            });
+            }));
             if (!response.ok) {
                 console.error("Error pushing", response);
                 throw new Error("Error pushing");
@@ -104,17 +118,29 @@ export function createServerNetworkInterface(baseUrl: string): NetworkInterface 
             console.log("pushed", result);
             return result;
         },
+        createSnapshot: async (args: CreateSnapshotRequest) => {
+            const response = await fetch(new Request(baseUrl + "/createSnapshot", {
+                method: "POST",
+                body: JSON.stringify(args),
+            }));
+            if (!response.ok) {
+                console.error("Error creating snapshot", response);
+                throw new Error("Error creating snapshot");
+            }
+            const result = await response.json();
+            console.log("created snapshot", result);
+            return result;
+        },
+        
         pull: async (args: PullRequest) => {
             console.log("pulling", args, baseUrl);
-            const response = await fetch(baseUrl + "/pull", {
+            const response = await fetch(new Request(baseUrl + "/pull", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
                 body: JSON.stringify(args),
-            });
+            }));
             if (!response.ok) {
-                console.error("Error pulling", response);
+                const text = await response.text();
+                console.error("Error pulling", response, text);
                 throw new Error("Error pulling");
             }
             const result = await response.json();

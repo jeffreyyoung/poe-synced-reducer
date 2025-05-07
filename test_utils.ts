@@ -9,6 +9,13 @@ export function createTestNetworkInterface(): NetworkInterface {
         listeners.forEach(listener => listener(payload));
     });
     return {
+        createSnapshot: async (args) => {
+            const response = await server(new Request("http://localhost/createSnapshot", {
+                method: "POST",
+                body: JSON.stringify(args),
+            }));
+            return response.json();
+        },
         close: () => {
         },
         subscribeToPoke: (spaceId: string, listener: (state: PokeMessage) => void) => {

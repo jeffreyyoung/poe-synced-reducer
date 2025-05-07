@@ -1,11 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 
-import { NotYetPushedAction, PokeMessage, PullRequest, PushedAction, PushRequest } from "./network.ts";
+import { CreateSnapshotRequest, NotYetPushedAction, PokeMessage, PullRequest, PushedAction, PushRequest } from "./network.ts";
 
 const version = 3;
 
 const spacesTable = `spaces_v${version}`;
 const actionsTable = `actions_v${version}`;
+const spaceActionCounterTable = `space_action_counter_v${version}`;
+const spaceSnapshotTable = `space_snapshot_v${version}`;
 
 function createTables(db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS ${spacesTable} (
@@ -20,16 +22,23 @@ function createTables(db: DatabaseSync) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (space_id, serverActionId)
     )`);
-    db.exec(`CREATE TABLE IF NOT EXISTS space_action_counter (
+    db.exec(`CREATE TABLE IF NOT EXISTS ${spaceSnapshotTable} (
+        space_id TEXT PRIMARY KEY,
+        state TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        lastIncludedActionId INTEGER
+    )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS ${spaceActionCounterTable} (
         space_id TEXT PRIMARY KEY,
         counter INTEGER DEFAULT 0
     )`);
 }
 
 function getNextActionId(db: DatabaseSync, spaceId: string): number {
-    db.prepare(`INSERT OR IGNORE INTO space_action_counter (space_id, counter) VALUES (?, 0)`).run(spaceId);
-    db.prepare(`UPDATE space_action_counter SET counter = counter + 1 WHERE space_id = ?`).run(spaceId);
-    const result = db.prepare(`SELECT counter FROM space_action_counter WHERE space_id = ?`).get(spaceId) as { counter: number };
+    
+    db.prepare(`INSERT OR IGNORE INTO ${spaceActionCounterTable} (space_id, counter) VALUES (?, 0)`).run(spaceId);
+    db.prepare(`UPDATE ${spaceActionCounterTable} SET counter = counter + 1 WHERE space_id = ?`).run(spaceId);
+    const result = db.prepare(`SELECT counter FROM ${spaceActionCounterTable} WHERE space_id = ?`).get(spaceId) as { counter: number };
     console.log('Next action ID for space', spaceId, ':', result.counter);
     return result.counter;
 }
@@ -65,6 +74,21 @@ function pushActions(db: DatabaseSync, spaceId: string, actions: NotYetPushedAct
     return pushedActions;
 }
 
+function createSnapshot(db: DatabaseSync, spaceId: string, lastActionId: number, state: any) {
+    db.prepare(`INSERT INTO ${spaceSnapshotTable} (space_id, state, lastIncludedActionId) VALUES (?, ?, ?)`).run(spaceId, JSON.stringify(state), lastActionId);
+}
+
+export function getSnapshot(db: DatabaseSync, spaceId: string): { state: any, lastIncludedActionId: number } | null {
+    const snapshot = db.prepare(`SELECT * FROM ${spaceSnapshotTable} WHERE space_id = ?`).get(spaceId) as {
+        state: string;
+        lastIncludedActionId: number;
+    };
+    return snapshot ? {
+        state: JSON.parse(snapshot.state),
+        lastIncludedActionId: snapshot.lastIncludedActionId
+    } : null;
+}
+
 const corsHeaders = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
@@ -89,13 +113,23 @@ export function createServer(db: DatabaseSync, publish: (spaceId: string, payloa
         
         if (url.pathname === "/pull" && req.method === "POST") {
             const body: PullRequest = await req.json();
-            const actions = pullActions(db, body.spaceId, body.lastActionId);
-            return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
+            const snapshot = getSnapshot(db, body.spaceId);
+            if (snapshot && snapshot.lastIncludedActionId >= body.lastActionId) {
+                const actions = pullActions(db, body.spaceId, body.lastActionId);
+                return new Response(JSON.stringify({ actions, snapshot }), { headers: corsHeaders });
+            } else {
+                const actions = pullActions(db, body.spaceId, body.lastActionId);
+                return new Response(JSON.stringify({ actions, snapshot }), { headers: corsHeaders });
+            }
         } else if (url.pathname === "/push" && req.method === "POST") {
             const body: PushRequest = await req.json();
             const actions = pushActions(db, body.spaceId, body.actions);
             publish(body.spaceId, { type: "actions", actions });
             return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
+        } else if (url.pathname === "/createSnapshot" && req.method === "POST") {
+            const body: CreateSnapshotRequest = await req.json();
+            createSnapshot(db, body.spaceId, body.lastActionId, body.state);
+            return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
         } else {
             return new Response(JSON.stringify({ error: "Invalid request" }), { status: 400, headers: corsHeaders });
         }
