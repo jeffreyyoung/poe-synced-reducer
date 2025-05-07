@@ -119,8 +119,8 @@ var ReducerCore = class {
   processPullResult(result) {
     this.processActions(result.actions);
   }
-  processSnapshot(result) {
-    this.state = result.state;
+  processSnapshot(result, initialState) {
+    this.state = result.state || initialState;
     const actionsToProcess = this.#mergeActions(result.actionsSinceLastSnapshot, this.confirmedActions);
     this.confirmedActions = [];
     this.processActions(actionsToProcess);
