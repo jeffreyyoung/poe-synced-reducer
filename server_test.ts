@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { PokeMessage } from "./network.ts";
 import { assertEquals } from "@std/assert/equals";
 import { assertExists } from "@std/assert/exists";
+import { createTestNetworkInterface } from "./test_utils.ts";
 
 Deno.test("server test", async () => {
     // Create an in-memory database for testing
@@ -134,3 +135,45 @@ Deno.test("server test", async () => {
     const invalidResult = await invalidResponse.json();
     assertEquals<string>(invalidResult.error, "Invalid request");
 });
+
+
+
+Deno.test("get latest snapshot works", async () => {
+    const networkInterface = createTestNetworkInterface();
+
+    const response = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response.actionsSinceLastSnapshot.length, 0);
+    assertEquals<any>(response.state, null);
+
+    await networkInterface.push({ spaceId: "test-space", actions: [{ clientActionId: "1", action: { type: "test", data: "test1" } }] });
+    const response2 = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response2.actionsSinceLastSnapshot.length, 1);
+    assertEquals<any>(response2.state, null);
+    assertEquals<string>(response2.actionsSinceLastSnapshot[0].action.data, "test1");
+
+    await networkInterface.push({ spaceId: "test-space", actions: [{ clientActionId: "2", action: { type: "test", data: "test2" } }] });
+    const response3 = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response3.actionsSinceLastSnapshot.length, 2);
+    assertEquals<string>(response3.actionsSinceLastSnapshot[1].action.data, "test2");
+    assertEquals<number>(response3.actionsSinceLastSnapshot[0].serverActionId, 1);
+    assertEquals<number>(response3.actionsSinceLastSnapshot[1].serverActionId, 2);
+
+    await networkInterface.createSnapshot({ spaceId: "test-space", lastActionId: 1, state: { hello: "world" } });
+    const response4 = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response4.actionsSinceLastSnapshot.length, 1);
+    assertEquals<any>(response4.state, { hello: "world" });
+    assertEquals<number>(response4.actionsSinceLastSnapshot[0].serverActionId, 2);
+
+    const response5 = await networkInterface.createSnapshot({ spaceId: "test-space", lastActionId: 2, state: { hello: "world2" } });
+    assertEquals<boolean>(response5.success, true);
+
+    const response6 = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response6.actionsSinceLastSnapshot.length, 0);
+    assertEquals<any>(response6.state, { hello: "world2" });
+
+    await networkInterface.push({ spaceId: "test-space", actions: [{ clientActionId: "3", action: { type: "test", data: "test3" } }] });
+    const response7 = await networkInterface.getLatestSnapshot({ spaceId: "test-space" });
+    assertEquals<number>(response7.actionsSinceLastSnapshot.length, 1);
+    assertEquals<string>(response7.actionsSinceLastSnapshot[0].action.data, "test3");
+    assertEquals<number>(response7.actionsSinceLastSnapshot[0].serverActionId, 3);
+})

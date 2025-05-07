@@ -11,27 +11,25 @@ export type PushedAction = {
     action: any;
 }
 
-export type SnapshotRequest = {
-    spaceId: string;
-    lastActionId: number;
-}
-export type SnapshotResponse = {
-    state: any;
-}
 
 export type PullRequest = {
     spaceId: string;
     lastActionId: number;
 }
 
-type Snapshot = {
-    state: any;
-    lastActionId: number;
+export type SnapshotRequest = {
+    spaceId: string;
 }
+
+export type SnapshotResponse = {
+    state: any;
+    actionsSinceLastSnapshot: PushedAction[];
+}
+
+
 
 export type PullResponse = {
     actions: PushedAction[];
-    snapshot?: Snapshot;
 }
 
 
@@ -63,6 +61,7 @@ export type NetworkInterface = {
     pull: (args: PullRequest) => Promise<PullResponse>;
     push: (args: PushRequest) => Promise<PushResponse>;
     createSnapshot: (args: CreateSnapshotRequest) => Promise<CreateSnapshotResponse>;
+    getLatestSnapshot: (args: SnapshotRequest) => Promise<SnapshotResponse>;
     close: () => void;
 }
 
@@ -84,6 +83,18 @@ export function createServerNetworkInterface(baseUrl: string): NetworkInterface 
             } catch (e) {
                 console.error("Error closing ably", e);
             }
+        },
+        getLatestSnapshot: async (args: SnapshotRequest) => {
+            const response = await fetch(new Request(baseUrl + "/getLatestSnapshot", {
+                method: "POST",
+                body: JSON.stringify(args),
+            }));
+            if (!response.ok) {
+                console.error("Error getting latest snapshot", response);
+                throw new Error("Error getting latest snapshot");
+            }
+            const result = await response.json();
+            return result;
         },
         subscribeToPoke: (spaceId: string, listener: (state: PokeMessage) => void) => {
             console.log("subscribing to poke", spaceId);

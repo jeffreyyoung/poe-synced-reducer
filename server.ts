@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 
-import { CreateSnapshotRequest, NotYetPushedAction, PokeMessage, PullRequest, PushedAction, PushRequest } from "./network.ts";
+import { CreateSnapshotRequest, NotYetPushedAction, PokeMessage, PullRequest, PullResponse, PushedAction, PushRequest, SnapshotRequest, SnapshotResponse } from "./network.ts";
 
 const version = 3;
 
@@ -75,7 +75,7 @@ function pushActions(db: DatabaseSync, spaceId: string, actions: NotYetPushedAct
 }
 
 function createSnapshot(db: DatabaseSync, spaceId: string, lastActionId: number, state: any) {
-    db.prepare(`INSERT INTO ${spaceSnapshotTable} (space_id, state, lastIncludedActionId) VALUES (?, ?, ?)`).run(spaceId, JSON.stringify(state), lastActionId);
+    db.prepare(`INSERT OR REPLACE INTO ${spaceSnapshotTable} (space_id, state, lastIncludedActionId) VALUES (?, ?, ?)`).run(spaceId, JSON.stringify(state), lastActionId);
 }
 
 export function getSnapshot(db: DatabaseSync, spaceId: string): { state: any, lastIncludedActionId: number } | null {
@@ -110,17 +110,21 @@ export function createServer(db: DatabaseSync, publish: (spaceId: string, payloa
                 }
             });
         }
-        
-        if (url.pathname === "/pull" && req.method === "POST") {
-            const body: PullRequest = await req.json();
+        if (url.pathname === "/getLatestSnapshot" && req.method === "POST") {
+            const body: SnapshotRequest = await req.json();
             const snapshot = getSnapshot(db, body.spaceId);
-            if (snapshot && snapshot.lastIncludedActionId >= body.lastActionId) {
-                const actions = pullActions(db, body.spaceId, body.lastActionId);
-                return new Response(JSON.stringify({ actions, snapshot }), { headers: corsHeaders });
-            } else {
-                const actions = pullActions(db, body.spaceId, body.lastActionId);
-                return new Response(JSON.stringify({ actions, snapshot }), { headers: corsHeaders });
+            const actionsSinceLastSnapshot = pullActions(db, body.spaceId, snapshot?.lastIncludedActionId ?? -1);
+            const response: SnapshotResponse = {
+                state: snapshot?.state ?? null,
+                actionsSinceLastSnapshot
             }
+            return new Response(JSON.stringify(response), { headers: corsHeaders });
+        } else if (url.pathname === "/pull" && req.method === "POST") {
+            const body: PullRequest = await req.json();
+            const response: PullResponse = {
+                actions: pullActions(db, body.spaceId, body.lastActionId ?? -1)
+            }
+            return new Response(JSON.stringify(response), { headers: corsHeaders });
         } else if (url.pathname === "/push" && req.method === "POST") {
             const body: PushRequest = await req.json();
             const actions = pushActions(db, body.spaceId, body.actions);
@@ -128,6 +132,7 @@ export function createServer(db: DatabaseSync, publish: (spaceId: string, payloa
             return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
         } else if (url.pathname === "/createSnapshot" && req.method === "POST") {
             const body: CreateSnapshotRequest = await req.json();
+            console.log("createSnapshot", body);
             createSnapshot(db, body.spaceId, body.lastActionId, body.state);
             return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
         } else {

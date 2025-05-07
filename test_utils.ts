@@ -18,6 +18,13 @@ export function createTestNetworkInterface(): NetworkInterface {
         },
         close: () => {
         },
+        getLatestSnapshot: async (args) => {
+            const response = await server(new Request("http://localhost/getLatestSnapshot", {
+                method: "POST",
+                body: JSON.stringify(args),
+            }));
+            return response.json();
+        },
         subscribeToPoke: (spaceId: string, listener: (state: PokeMessage) => void) => {
             listeners.add(listener);
             return () => listeners.delete(listener);

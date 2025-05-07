@@ -1,5 +1,6 @@
 import { simpleHash } from "./simpleHash.ts";
-import { NetworkInterface, PokeMessage, PushedAction, NotYetPushedAction, createServerNetworkInterface } from "./network.ts";
+import { NetworkInterface, PokeMessage, createServerNetworkInterface } from "./network.ts";
+import { ReducerCore } from "./reducer_core.ts";
 
 type SetupOptions = {
     reducer: (state: any, action: any) => any;
@@ -11,69 +12,75 @@ type SetupOptions = {
 
 type Listener = (state: any) => void;
 export function setup(options: SetupOptions) {
-    const { reducer, initialState, spaceId: spaceIdOption, baseUrl } = options;
-    const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
-    // state is the true server state
-    let state = initialState;
-    const confirmedActions: PushedAction[] = [];
-    const clientId = crypto.randomUUID();
-    // we always rebase these actions on top of the server state
-    const unconfirmedActions: NotYetPushedAction[] = [];
-    const spaceId = spaceIdOption ?? `reducer`+simpleHash(reducer.toString());
+    const { spaceId: spaceIdOption, baseUrl } = options;
+    
     const listeners: Set<Listener> = new Set();
 
-    function getStateWithUnconfirmedActions() {
-        let newState = state;
-        for (const action of unconfirmedActions) {
-            newState = reducer(newState, action.action);
-        }
-        return newState;
-    }
-    function notifyListeners() {
-        const newState = getStateWithUnconfirmedActions();
-        // log as table
-        console.table({
-            clientId,
-            spaceId,
-            state,
-            confirmedActions: confirmedActions.length,
-            unconfirmedActions: unconfirmedActions.length,
-            newState
-        })
-        listeners.forEach(listener => listener(newState));
-    }
-    const clientActionIdToStatus: Record<string, "waiting" | "pending"> = {};
-    networkInterface.subscribeToPoke(spaceId, (data: PokeMessage) => {
-        console.log("received poke", data);
-        if (data.type === "actions") {
-            processActions(data.actions);
-        }
+    const core = new ReducerCore(options.reducer, options.initialState, (state) => {
+        // this is called whenever an action is added
+        listeners.forEach(listener => listener(state));
     });
+    const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
+    const clientId = crypto.randomUUID();
+    const spaceId = spaceIdOption ?? `reducer`+simpleHash(options.reducer.toString());
+    // this is used to track which actions have already been pushed
+    const clientActionIdToStatus: Record<string, "waiting" | "pending"> = {};
+    
 
-    function processActions(actions: PushedAction[]) {
-        console.log("processing actions", actions);
-        for (const action of actions) {
-            console.log("processing action", action);
-            confirmedActions.push(action);
-            state = reducer(state, action.action);
-            console.log("state", state);
-            const index = unconfirmedActions.findIndex(unconfirmedAction => action.clientActionId === unconfirmedAction.clientActionId);
-            if (index !== -1) {
-                unconfirmedActions.splice(index, 1);
+    const schedulePull = throttle(() => {
+        return networkInterface.pull({ spaceId, lastActionId: core.getHighestConfirmedActionId() ?? -1 }).then((result) => {
+            core.processPullResult(result);
+        });
+    }, 500)
+        // initial pull of actions
+    const readyPromise = networkInterface
+        .getLatestSnapshot({ spaceId })
+        .then((result) => {
+            core.processSnapshot(result);
+        })
+        .catch((e) => {
+            console.error("error while waiting for initial state", e);
+            return true;
+        });
+
+    // subscribe to poke messages
+    function createSnapshot() {
+        const lastActionId = core.getHighestConfirmedActionId() ?? -1;
+        if (lastActionId > 50) {
+            return networkInterface.createSnapshot({
+                spaceId,
+                lastActionId,
+                state: core.getConfirmedState()
+            })
+        }
+    }
+    networkInterface.subscribeToPoke(spaceId, async (data: PokeMessage) => {
+        console.log("received poke", data);
+        await readyPromise;
+        if (data.type === "actions") {
+            const lastAction = data.actions.at(-1);
+            if (!lastAction) {
+                console.error("received poke with no actions");
+                return;
+            }
+            if (!core.getHighestConfirmedActionId() || core.getHighestConfirmedActionId() === lastAction.serverActionId - 1) {
+                core.processActions(data.actions);
+                const lastActionId = core.getHighestConfirmedActionId() ?? -1;
+                if (Math.random() > 0.99 && lastActionId > 50) {
+                    networkInterface.createSnapshot({
+                        spaceId,
+                        lastActionId,
+                        state: core.getConfirmedState()
+                    })
+                }
+            } else {
+                schedulePull()
             }
         }
-        notifyListeners();
-    }
-    // request the initial state
-    // in case another client is already connected
-    const readyPromise = networkInterface.pull({ spaceId, lastActionId: -1 }).then((result) => {
-        console.log("pulled actions", result);
-        processActions(result.actions);
     });
 
     const pushActions = throttle(async () => {
-        const actionsToFlush = unconfirmedActions.filter(action => clientActionIdToStatus[action.clientActionId] === "waiting");
-        console.log("pushing", actionsToFlush);
+        const actionsToFlush = core.unconfirmedActions.filter(action => clientActionIdToStatus[action.clientActionId] === "waiting");
         actionsToFlush.forEach(action => {
             clientActionIdToStatus[action.clientActionId] = "pending";
         });
@@ -84,27 +91,24 @@ export function setup(options: SetupOptions) {
         clientId,
         networkInterface,
         isReady: async () => {
-            await readyPromise.catch((e) => {
-                console.error("error while waiting for initial state", e);
-                return false;
-            });
+            await readyPromise;
             return true;
         },
         subscribe: (listener: Listener) => {
             listeners.add(listener);
-            listener(state);
+            listener(core.getState());
             return () => {
                 listeners.delete(listener);
             }
         },
         dispatch: (action: any) => {
             const clientActionId = crypto.randomUUID();
-            unconfirmedActions.push({ action, clientActionId });
+            core.addUnconfirmedAction({ action, clientActionId });
             clientActionIdToStatus[clientActionId] = "waiting";
-            notifyListeners();
             pushActions();
         },
-        getState: () => getStateWithUnconfirmedActions()
+        getState: () => core.getState(),
+        createSnapshot
     }
 }
 
