@@ -2,7 +2,7 @@ import { setup } from "./client.ts";
 import { assertEquals } from "@std/assert";
 import { createServerNetworkInterface } from "./network.ts";
 
-const url = Deno.env.get("POE_SYNCED_REDUCER_URL") ?? "http://poe-synced-reducer.fly.dev";
+const url = Deno.env.get("POE_SYNCED_REDUCER_URL") ?? "https://poe-synced-reducer.fly.dev";
 
 const e2eOps = {
     sanitizeResources: false,
