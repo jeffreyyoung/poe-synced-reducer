@@ -85,19 +85,15 @@ function createServerNetworkInterface(baseUrl) {
 }
 
 // client.ts
-function generateDeterministicId(prefix, seed) {
-  return `${prefix}-${simpleHash(seed)}`;
-}
 function setup(options) {
   const { reducer, initialState, spaceId: spaceIdOption, baseUrl } = options;
   const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
   let state = initialState;
   const confirmedActions = [];
-  const clientId = generateDeterministicId("client", reducer.toString() + initialState.toString());
+  const clientId = crypto.randomUUID();
   const unconfirmedActions = [];
   const spaceId = spaceIdOption ?? `reducer` + simpleHash(reducer.toString());
   const listeners = /* @__PURE__ */ new Set();
-  let actionCounter = 0;
   function getStateWithUnconfirmedActions() {
     let newState = state;
     for (const action of unconfirmedActions) {
@@ -168,7 +164,7 @@ function setup(options) {
       };
     },
     dispatch: (action) => {
-      const clientActionId = generateDeterministicId("action", JSON.stringify(action) + actionCounter++);
+      const clientActionId = crypto.randomUUID();
       unconfirmedActions.push({ action, clientActionId });
       clientActionIdToStatus[clientActionId] = "waiting";
       notifyListeners();
@@ -182,14 +178,21 @@ function throttle(fn, delay) {
   let timeoutId;
   let lastArgs;
   return (...args) => {
+    const now = Date.now();
     lastArgs = args;
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+    if (now - lastCall > delay) {
+      lastCall = now;
+      fn(...args);
+    } else {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => {
+        lastCall = Date.now();
+        fn(...lastArgs);
+        timeoutId = void 0;
+      }, delay - (now - lastCall));
     }
-    timeoutId = setTimeout(() => {
-      fn(...lastArgs);
-      timeoutId = void 0;
-    }, delay);
   };
 }
 export {
