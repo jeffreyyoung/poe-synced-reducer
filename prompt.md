@@ -470,19 +470,21 @@ const reducer = (state, action) => {
 };
 
 // Set up the synchronized state
-const { subscribe, dispatch, } = setup({
+const db = setup({
   reducer,
   initialState: { count: 0 }
 });
 
+db.clientId // <-- id of current client
+
 // Subscribe to state changes
-const unsubscribe = subscribe((state) => {
+const unsubscribe = db.subscribe((state, { clientId }) => {
   console.log('Current state:', state);
 });
 
 // Dispatch actions
-dispatch({ type: 'INCREMENT' });
-dispatch({ type: 'DECREMENT' });
+db.dispatch({ type: 'INCREMENT' });
+db.dispatch({ type: 'DECREMENT' });
 
 // Clean up when done
 unsubscribe();
