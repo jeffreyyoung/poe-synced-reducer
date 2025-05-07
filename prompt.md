@@ -509,7 +509,7 @@ Returns an object with:
 - `getState`: Returns the current state
 
 ### `subscribe(listener: (state: any) => void)`
-
+q
 Subscribe to state changes. Returns an unsubscribe function.
 
 ### `dispatch(action: any)`

@@ -1,52 +1,24 @@
 import { simpleHash } from "./simpleHash.ts";
-import { NetworkInterface, createAblyNetworkInterface } from "./network.ts";
+import { NetworkInterface, PokeMessage, PushedAction, NotYetPushedAction, createServerNetworkInterface } from "./network.ts";
 
 type SetupOptions = {
     reducer: (state: any, action: any) => any;
     initialState: any;
     networkInterface?: NetworkInterface;
+    spaceId?: string;
 }
-
-type UnconfirmedAction = {
-    action: any;
-    clientActionId: string;
-    status: "waiting" | "pending";
-}
-type ConfirmedAction = {
-    action: any;
-    clientActionId: string;
-    serverActionId: string;
-}
-
-type ActionBatch = {
-    type: "actionBatch";
-    actions: ConfirmedAction[];
-}
-
-type RequestState = {
-    type: "requestState";
-    fromClientId: string;
-}
-
-type StateResponseAction = {
-    type: "stateResponse";
-    state: any;
-    forClientId: string;
-}
-
-type PublishedMessage = ActionBatch | RequestState | StateResponseAction;
-
 
 type Listener = (state: any) => void;
 export function setup(options: SetupOptions) {
-    const { reducer, initialState } = options;
-    const networkInterface = options.networkInterface ?? createAblyNetworkInterface();
+    const { reducer, initialState, spaceId: spaceIdOption } = options;
+    const networkInterface = options.networkInterface ?? createServerNetworkInterface("https://poe-synced-reducer.fly.dev");
     // state is the true server state
     let state = initialState;
-    const confirmedActions: ConfirmedAction[] = [];
+    const confirmedActions: PushedAction[] = [];
+    const clientId = crypto.randomUUID();
     // we always rebase these actions on top of the server state
-    const unconfirmedActions: UnconfirmedAction[] = [];
-    const spaceId = `reducer`+simpleHash(reducer.toString());
+    const unconfirmedActions: NotYetPushedAction[] = [];
+    const spaceId = spaceIdOption ?? `reducer`+simpleHash(reducer.toString());
     const listeners: Set<Listener> = new Set();
 
     function getStateWithUnconfirmedActions() {
@@ -58,49 +30,65 @@ export function setup(options: SetupOptions) {
     }
     function notifyListeners() {
         const newState = getStateWithUnconfirmedActions();
-        console.log("notifyListeners", newState, state, confirmedActions, unconfirmedActions);
+        // log as table
+        console.table({
+            clientId,
+            spaceId,
+            state,
+            confirmedActions: confirmedActions.length,
+            unconfirmedActions: unconfirmedActions.length,
+            newState
+        })
         listeners.forEach(listener => listener(newState));
     }
-    const clientId = crypto.randomUUID();
-
-    networkInterface.subscribe(spaceId, (data: PublishedMessage) => {
-        console.log("received", data);
-        if ("type" in data && data.type === "requestState" && data.fromClientId !== clientId) {
-            networkInterface.publish(spaceId, { type: "stateResponse", state, forClientId: data.fromClientId } as StateResponseAction);
-        }
-        if ("type" in data && data.type === "stateResponse") {
-            if (data.forClientId === clientId) {
-                state = data.state;
-                notifyListeners();
-            }
-        }
-        if ("type" in data && data.type === "actionBatch") {
-            for (const action of data.actions) {
-                const index = unconfirmedActions.findIndex(unconfirmedAction => action.clientActionId === unconfirmedAction?.clientActionId);
-                if (index !== -1) {
-                    unconfirmedActions.splice(index, 1);
-                }
-                confirmedActions.push(action);
-                state = reducer(state, action.action);
-            }
-            notifyListeners();
+    const clientActionIdToStatus: Record<string, "waiting" | "pending"> = {};
+    networkInterface.subscribeToPoke(spaceId, (data: PokeMessage) => {
+        console.log("received poke", data);
+        if (data.type === "actions") {
+            processActions(data.actions);
         }
     });
-    console.log("setup!!!!")
+
+    function processActions(actions: PushedAction[]) {
+        console.log("processing actions", actions);
+        for (const action of actions) {
+            console.log("processing action", action);
+            confirmedActions.push(action);
+            state = reducer(state, action.action);
+            console.log("state", state);
+            const index = unconfirmedActions.findIndex(unconfirmedAction => action.clientActionId === unconfirmedAction.clientActionId);
+            if (index !== -1) {
+                unconfirmedActions.splice(index, 1);
+            }
+        }
+        notifyListeners();
+    }
     // request the initial state
     // in case another client is already connected
-    networkInterface.publish(spaceId, { type: "requestState", fromClientId: clientId } as RequestState);
+    const readyPromise = networkInterface.pull({ spaceId, lastActionId: -1 }).then((result) => {
+        console.log("pulled actions", result);
+        processActions(result.actions);
+    });
 
-    const flushActions = throttle(() => {
-        const actionsToFlush = unconfirmedActions.filter(action => action.status === "waiting");
+    const pushActions = throttle(async () => {
+        const actionsToFlush = unconfirmedActions.filter(action => clientActionIdToStatus[action.clientActionId] === "waiting");
+        console.log("pushing", actionsToFlush);
         actionsToFlush.forEach(action => {
-            action.status = "pending";
+            clientActionIdToStatus[action.clientActionId] = "pending";
         });
-        networkInterface.publish(spaceId, { type: "actionBatch", actions: actionsToFlush });
+        await networkInterface.push({ spaceId, actions: actionsToFlush });
     }, 100);
 
-
     return {
+        clientId,
+        networkInterface,
+        isReady: async () => {
+            await readyPromise.catch((e) => {
+                console.error("error while waiting for initial state", e);
+                return false;
+            });
+            return true;
+        },
         subscribe: (listener: Listener) => {
             listeners.add(listener);
             listener(state);
@@ -110,9 +98,10 @@ export function setup(options: SetupOptions) {
         },
         dispatch: (action: any) => {
             const clientActionId = crypto.randomUUID();
-            unconfirmedActions.push({ action, clientActionId, status: "waiting" });
+            unconfirmedActions.push({ action, clientActionId });
+            clientActionIdToStatus[clientActionId] = "waiting";
             notifyListeners();
-            flushActions();
+            pushActions();
         },
         getState: () => getStateWithUnconfirmedActions()
     }

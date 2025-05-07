@@ -1,6 +1,11 @@
 {
   "tasks": {
-    "dev": "deno run --watch main.ts"
+    "dev": "deno run --watch main.ts",
+    "server": "deno run --allow-env --allow-net server_main.ts",
+    "e2e": "POE_SYNCED_REDUCER_URL=https://poe-synced-reducer.fly.dev deno test e2e_test.ts --allow-env --allow-net",
+    "test:docker": "deno task docker:up && POE_SYNCED_REDUCER_URL=http://localhost:8000 deno test e2e_test.ts --allow-net --allow-env && deno task docker:down",
+    "docker:up": "docker-compose up -d --build",
+    "docker:down": "docker-compose down"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@1"

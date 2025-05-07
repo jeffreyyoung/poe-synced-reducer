@@ -1,0 +1,9 @@
+version: "3"
+
+services:
+  web:
+    build: .
+    container_name: jeff-poe-synced-reducer-container
+    image: jeff-poe-synced-reducer-image
+    ports:
+      - "8000:8000"
