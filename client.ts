@@ -89,7 +89,7 @@ export function setup(options: SetupOptions) {
             return;
         }
         await networkInterface.push({ spaceId, actions: actionsToFlush });
-    }, 100);
+    }, 200);
 
     return {
         clientId,

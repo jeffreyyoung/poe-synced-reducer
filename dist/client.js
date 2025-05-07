@@ -247,7 +247,7 @@ function setup(options) {
       return;
     }
     await networkInterface.push({ spaceId, actions: actionsToFlush });
-  }, 100);
+  }, 200);
   return {
     clientId,
     networkInterface,
