@@ -447,6 +447,8 @@ The id attribute can look like this:
 8. Persisted data + Multi user apps
 - Store all state to be persisted or synced using poe-synced-reducer.
 - You must always import the synced state setup function as an esmodule from this url `https://poe-synced-reducer.val.run/v1`.
+- The reducers must be DETERMINISTIC.  You cannot call Math.random, Date.now, or any other non-deterministic function from within a reducer.
+- Remember, the reducer is for user by multiple users.  You can call 
 
 ```javascript
 import { setup } from 'https://poe-synced-reducer.val.run/v1';
@@ -468,7 +470,7 @@ const reducer = (state, action) => {
 };
 
 // Set up the synchronized state
-const { subscribe, dispatch } = setup({
+const { subscribe, dispatch, } = setup({
   reducer,
   initialState: { count: 0 }
 });

@@ -5,21 +5,29 @@ type SetupOptions = {
     reducer: (state: any, action: any) => any;
     initialState: any;
     networkInterface?: NetworkInterface;
+    baseUrl?: string;
     spaceId?: string;
 }
 
 type Listener = (state: any) => void;
+
+// Deterministic ID generation
+function generateDeterministicId(prefix: string, seed: string): string {
+    return `${prefix}-${simpleHash(seed)}`;
+}
+
 export function setup(options: SetupOptions) {
-    const { reducer, initialState, spaceId: spaceIdOption } = options;
-    const networkInterface = options.networkInterface ?? createServerNetworkInterface("https://poe-synced-reducer.fly.dev");
+    const { reducer, initialState, spaceId: spaceIdOption, baseUrl } = options;
+    const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
     // state is the true server state
     let state = initialState;
     const confirmedActions: PushedAction[] = [];
-    const clientId = crypto.randomUUID();
+    const clientId = generateDeterministicId('client', reducer.toString() + initialState.toString());
     // we always rebase these actions on top of the server state
     const unconfirmedActions: NotYetPushedAction[] = [];
     const spaceId = spaceIdOption ?? `reducer`+simpleHash(reducer.toString());
     const listeners: Set<Listener> = new Set();
+    let actionCounter = 0;
 
     function getStateWithUnconfirmedActions() {
         let newState = state;
@@ -97,7 +105,7 @@ export function setup(options: SetupOptions) {
             }
         },
         dispatch: (action: any) => {
-            const clientActionId = crypto.randomUUID();
+            const clientActionId = generateDeterministicId('action', JSON.stringify(action) + actionCounter++);
             unconfirmedActions.push({ action, clientActionId });
             clientActionIdToStatus[clientActionId] = "waiting";
             notifyListeners();
@@ -114,23 +122,15 @@ function throttle(fn: (...args: any[]) => void, delay: number) {
     let lastArgs: any[] | undefined;
 
     return (...args: any[]) => {
-        const now = Date.now();
         lastArgs = args;
 
-        if (now - lastCall > delay) {
-            // If we're past the delay, execute immediately
-            lastCall = now;
-            fn(...args);
-        } else {
-            // Schedule the last call to happen after the delay
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-            }
-            timeoutId = setTimeout(() => {
-                lastCall = Date.now();
-                fn(...lastArgs!);
-                timeoutId = undefined;
-            }, delay - (now - lastCall));
+        if (timeoutId) {
+            clearTimeout(timeoutId);
         }
+        
+        timeoutId = setTimeout(() => {
+            fn(...lastArgs!);
+            timeoutId = undefined;
+        }, delay);
     }
 }

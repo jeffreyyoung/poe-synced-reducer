@@ -65,22 +65,39 @@ function pushActions(db: DatabaseSync, spaceId: string, actions: NotYetPushedAct
     return pushedActions;
 }
 
+const corsHeaders = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "*",
+}
 export function createServer(db: DatabaseSync, publish: (spaceId: string, payload: PokeMessage) => void) {
     createTables(db);
     return async (req: Request) => {
         const url = new URL(req.url);
         console.log("request!!!", req.method, url.pathname);
+        
+        // Handle preflight requests
+        if (req.method === "OPTIONS") {
+            return new Response(null, {
+                headers: {
+                    ...corsHeaders,
+                    "Access-Control-Allow-Methods": "POST, OPTIONS",
+                    "Access-Control-Max-Age": "86400",
+                }
+            });
+        }
+        
         if (url.pathname === "/pull" && req.method === "POST") {
             const body: PullRequest = await req.json();
             const actions = pullActions(db, body.spaceId, body.lastActionId);
-            return new Response(JSON.stringify({ actions }));
+            return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
         } else if (url.pathname === "/push" && req.method === "POST") {
             const body: PushRequest = await req.json();
             const actions = pushActions(db, body.spaceId, body.actions);
             publish(body.spaceId, { type: "actions", actions });
-            return new Response(JSON.stringify({ actions }));
+            return new Response(JSON.stringify({ actions }), { headers: corsHeaders });
         } else {
-            return new Response(JSON.stringify({ error: "Invalid request" }), { status: 400 });
+            return new Response(JSON.stringify({ error: "Invalid request" }), { status: 400, headers: corsHeaders });
         }
     }
 }

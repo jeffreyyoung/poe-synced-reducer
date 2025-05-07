@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo List</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .todo-item.completed {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .todo-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+        .delete-btn {
+            margin-left: auto;
+            color: red;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Todo List</h1>
+    <input type="text" class="todo-input" placeholder="Add a new todo...">
+    <div id="todo-list"></div>
+
+    <script type="module">
+        import { setup } from './client.js';
+
+        // Todo reducer
+        const todoReducer = (state = [], action) => {
+            switch (action.type) {
+                case 'ADD_TODO':
+                    return [...state, {
+                        id: `todo-${state.length}`,
+                        text: action.text,
+                        completed: false
+                    }];
+                case 'TOGGLE_TODO':
+                    return state.map(todo =>
+                        todo.id === action.id
+                            ? { ...todo, completed: !todo.completed }
+                            : todo
+                    );
+                case 'DELETE_TODO':
+                    return state.filter(todo => todo.id !== action.id);
+                default:
+                    return state;
+            }
+        };
+
+        // Initialize the client
+        const client = setup({
+            reducer: todoReducer,
+            baseUrl: "http://localhost:8000",
+            initialState: []
+        });
+
+        // DOM elements
+        const todoInput = document.querySelector('.todo-input');
+        const todoList = document.getElementById('todo-list');
+
+        // Handle input submission
+        todoInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && todoInput.value.trim()) {
+                client.dispatch({
+                    type: 'ADD_TODO',
+                    text: todoInput.value.trim()
+                });
+                todoInput.value = '';
+            }
+        });
+
+        // Subscribe to state changes
+        client.subscribe((state) => {
+            todoList.innerHTML = state.map(todo => `
+                <div class="todo-item ${todo.completed ? 'completed' : ''}">
+                    <input type="checkbox" 
+                           ${todo.completed ? 'checked' : ''} 
+                           onchange="window.dispatchEvent(new CustomEvent('toggleTodo', { detail: '${todo.id}' }))">
+                    <span>${todo.text}</span>
+                    <span class="delete-btn" 
+                          onclick="window.dispatchEvent(new CustomEvent('deleteTodo', { detail: '${todo.id}' }))">
+                        ×
+                    </span>
+                </div>
+            `).join('');
+        });
+
+        // Handle todo actions
+        window.addEventListener('toggleTodo', (e) => {
+            client.dispatch({
+                type: 'TOGGLE_TODO',
+                id: e.detail
+            });
+        });
+
+        window.addEventListener('deleteTodo', (e) => {
+            client.dispatch({
+                type: 'DELETE_TODO',
+                id: e.detail
+            });
+        });
+    </script>
+</body>
+</html>

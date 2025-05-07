@@ -1,10 +1,11 @@
 import { setup } from "./client.ts";
 import { createTestNetworkInterface } from "./test_utils.ts";
 import { assertEquals } from "@std/assert/equals";
+import { simpleHash } from "./simpleHash.ts";
 
 Deno.test("main test", async () => {
     const networkInterface = createTestNetworkInterface();
-    const spaceId = "test"+Math.random();
+    const spaceId = "test-" + simpleHash("test-space");
     function reducer(state: any, action: any) {
         if (action.type === "increment") {
             return state + 1;
