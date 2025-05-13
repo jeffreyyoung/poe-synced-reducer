@@ -182,6 +182,14 @@ var ReducerCore = class {
 };
 
 // client.ts
+function getQueryParam(name) {
+  try {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(name);
+  } catch (e) {
+    return null;
+  }
+}
 function setup(options) {
   const { spaceId: spaceIdOption, baseUrl } = options;
   const listeners = /* @__PURE__ */ new Set();
@@ -190,7 +198,7 @@ function setup(options) {
   });
   const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
   const clientId = crypto.randomUUID();
-  const spaceId = spaceIdOption ?? `reducer` + simpleHash(options.reducer.toString());
+  const spaceId = spaceIdOption ?? getQueryParam("spaceID") ?? `reducer` + simpleHash(options.reducer.toString());
   const clientActionIdToStatus = {};
   const schedulePull = throttle(() => {
     return networkInterface.pull({ spaceId, lastActionId: core.getHighestConfirmedActionId() ?? -1 }).then((result) => {

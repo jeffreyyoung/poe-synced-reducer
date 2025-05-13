@@ -10,6 +10,15 @@ type SetupOptions = {
     spaceId?: string;
 }
 
+function getQueryParam(name: string) {
+    try {
+        const url = new URL(window.location.href);
+        return url.searchParams.get(name);
+    } catch (e) {
+        return null;
+    }
+}
+
 type Listener = (state: any) => void;
 export function setup(options: SetupOptions) {
     const { spaceId: spaceIdOption, baseUrl } = options;
@@ -22,7 +31,7 @@ export function setup(options: SetupOptions) {
     });
     const networkInterface = options.networkInterface ?? createServerNetworkInterface(baseUrl ?? "https://poe-synced-reducer.fly.dev");
     const clientId = crypto.randomUUID();
-    const spaceId = spaceIdOption ?? `reducer`+simpleHash(options.reducer.toString());
+    const spaceId = spaceIdOption ?? getQueryParam("spaceID") ?? `reducer`+simpleHash(options.reducer.toString());
     // this is used to track which actions have already been pushed
     const clientActionIdToStatus: Record<string, "waiting" | "pending"> = {};
     
